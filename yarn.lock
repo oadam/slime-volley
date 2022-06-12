@@ -2,6 +2,13 @@
 # yarn lockfile v1
 
 
+"@flyover/box2d@^1.0.1":
+  version "1.0.1"
+  resolved "https://registry.yarnpkg.com/@flyover/box2d/-/box2d-1.0.1.tgz#1c05a480d8e2c79252bc5925637db6438b265e82"
+  integrity sha512-6qZCV2D7s4W8DJi7w1AhxXrtta+aKyM/LMbYXnnE9ykSqIWTLZKJTJu+CqlylLswdt43IV6irvAy8VzjS+ptOw==
+  dependencies:
+    "@types/systemjs" "^0.20.6"
+
 "@jridgewell/resolve-uri@^3.0.3":
   version "3.0.7"
   resolved "https://registry.yarnpkg.com/@jridgewell/resolve-uri/-/resolve-uri-3.0.7.tgz#30cd49820a962aff48c8fffc5cd760151fca61fe"
@@ -82,6 +89,11 @@
   integrity sha512-BPdoIt1lfJ6B7rw35ncdwBZrAssjcwzI5LByIrYs+tpXlj/CAkuVdRsgZDdP4lq5EjyWzwxZCqAoFyHKFwp32g==
   dependencies:
     "@types/node" "*"
+
+"@types/systemjs@^0.20.6":
+  version "0.20.8"
+  resolved "https://registry.yarnpkg.com/@types/systemjs/-/systemjs-0.20.8.tgz#64d337071004392f1c66b0c4af177a06bf597d35"
+  integrity sha512-LO1LLPfKt5A/fqD4cxUHi1KCEQdwCgkHlT7zOIyFdWuwvZ2tDL8wUDbKY4YGOEsqifhzV6l5vE3aHJpYfwHZIg==
 
 anymatch@~3.1.2:
   version "3.1.2"
