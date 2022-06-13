@@ -26,13 +26,12 @@
   const WIDTH = 40;
   const PLAYER_RADIUS = 1.8;
   const PLAYER_SPEED = 30 / 3.6;
-  const PLAYER_ACCEL_DURATION = 30 / 3.6;
   const PLAYER_CHAIN_SIZE = 20;
-  const JUMP_HEIGHT = 1.5;
+  const JUMP_HEIGHT = 1.0;
   const BALL_RADIUS = 0.3;
   const BALL_DAMPING = 0.4;
   const BALL_RESTITUTION = 0.8;
-  const NET_HEIGHT = PLAYER_RADIUS;
+  const NET_HEIGHT = 1.5;
   const GROUND_THICKNESS = 0.1;
   const NET_THICKNESS = 0.15;
   const PLAYER_STARTING_POS = (0.8 * GROUND_WIDTH) / 2;
