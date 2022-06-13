@@ -1,0 +1,17 @@
+name: Build Deploy
+on: [push]
+jobs:
+        build:
+                name: Build Deploy
+                runs-on: ubuntu-latest
+                steps:
+                        - uses: actions/checkout@v2
+                        - name: yarn install
+                          run: yarn install
+                        - name: build
+                          run: yarn build
+                        - uses: peaceiris/actions-gh-pages@v3
+                          if: ${{ github.ref == 'refs/heads/main' }}
+                          with:
+                                  deploy_key: ${{ secrets.ACTIONS_DEPLOY_KEY }}
+                                  publish_dir: ./dist
