@@ -20,12 +20,8 @@
     PHYSICS,
     CONTROLS,
   } from "./Constants";
-  import {
-    createWorld,
-    createBall,
-    createPlayer,
-    ContactListener,
-  } from "./Bodies";
+  import { XY, b2Body, b2ContactListener, b2Contact } from "@flyover/box2d";
+  import { createWorld, createPlayer, getContactBodies } from "./Bodies";
 
   interface PlayerInput {
     jump: boolean;
@@ -39,31 +35,75 @@
   let playerTouchedLast = 0;
   let resetNext: number | null = Math.round(Math.random());
 
-  const world = createWorld();
-  let ballBody = createBall(world);
+  let { world, ball } = createWorld();
   let players = [createPlayer(world, 0), createPlayer(world, 1)];
+
+  let simulationHadBallGround = false;
+  let simulation = createWorld();
+  simulation.world.SetContactListener(
+    new (class extends b2ContactListener {
+      override BeginContact(contact: b2Contact): void {
+        const { player, ball, ground } = getContactBodies(contact);
+        if (ball && ground) {
+          simulationHadBallGround = true;
+        }
+      }
+    })()
+  );
+
+  function onBallGround() {
+    const fallenSide = ball.GetPosition().x > 0 ? 1 : 0;
+    const isFaute = Math.abs(ball.GetPosition().x) > GROUND_WIDTH / 2;
+    const playerWins = isFaute ? 1 - playerTouchedLast : 1 - fallenSide;
+    score[playerWins]++;
+    resetNext = 1 - playerWins;
+  }
+
+  function adjustSimul() {
+    simulation.ball.SetPosition(ball.GetPosition());
+    simulation.ball.SetLinearVelocity(ball.GetLinearVelocity());
+    simulation.ball.SetAngularVelocity(ball.GetAngularVelocity());
+    simulationHadBallGround = false;
+    while (!simulationHadBallGround) {
+      simulation.world.Step(
+        PHYSICS.timeStep,
+        PHYSICS.velocityIterations,
+        PHYSICS.positionIterations
+      );
+      const pos = simulation.ball.GetPosition();
+      // TODO compute if reachable by bot
+      // if reachable compute trajectory for each (hitAngle, dir) tuples
+      // pick best trajectory
+    }
+  }
+
   world.SetContactListener(
-    new ContactListener({
-      onBallGround: () => {
-        const fallenSide = ballBody.GetPosition().x > 0 ? 1 : 0;
-        const isFaute = Math.abs(ballBody.GetPosition().x) > GROUND_WIDTH / 2;
-        const playerWins = isFaute ? 1 - playerTouchedLast : 1 - fallenSide;
-        score[playerWins]++;
-        resetNext = 1 - playerWins;
-      },
-      onPlayerBall: (playerIndex: number) => {
-        playerTouchedLast = playerIndex!;
-      },
-    })
+    new (class extends b2ContactListener {
+      override BeginContact(contact: b2Contact): void {
+        const { player, ball, ground } = getContactBodies(contact);
+        if (player && ball) {
+          playerTouchedLast = player.m_userData!.playerIndex!;
+        }
+        if (ball && ground) {
+          onBallGround();
+        }
+      }
+      override EndContact(contact: b2Contact): void {
+        const { player, ball, ground } = getContactBodies(contact);
+        if (ball) {
+          adjustSimul();
+        }
+      }
+    })()
   );
 
   const reset = function (playerServe: number) {
     playerTouchedLast = playerServe;
     players[0].SetPositionXY(-PLAYER_STARTING_POS, 0);
     players[1].SetPositionXY(PLAYER_STARTING_POS, 0);
-    ballBody.SetAngularVelocity(0);
-    ballBody.SetLinearVelocity({ x: 0, y: BALL_STARTING_POS.vy });
-    ballBody.SetPositionXY(
+    ball.SetAngularVelocity(0);
+    ball.SetLinearVelocity({ x: 0, y: BALL_STARTING_POS.vy });
+    ball.SetPositionXY(
       (playerServe ? 1 : -1) * BALL_STARTING_POS.x,
       BALL_STARTING_POS.y
     );
@@ -150,7 +190,7 @@
         PHYSICS.positionIterations
       );
       // useless assignments to force redraw
-      ballBody = ballBody;
+      ball = ball;
       players = players;
     }
   }
@@ -171,9 +211,9 @@
     return () => cancelAnimationFrame(loopId);
   });
 
-  const computePlayerAngle = (playerIndex: number) => {
+  const computePlayerAngle = (players: b2Body[], playerIndex: number) => {
     const player = players[playerIndex].GetPosition();
-    const ballPosition = ballBody.GetPosition();
+    const ballPosition = ball.GetPosition();
     const atan =
       player.x == ballPosition.x
         ? 270
@@ -200,21 +240,21 @@
     <Player
       color="red"
       radius={PLAYER_RADIUS}
-      eyeAngle={computePlayerAngle(0)}
+      eyeAngle={computePlayerAngle(players, 0)}
       x={players[0].GetPosition().x}
       y={players[0].GetPosition().y}
     />
     <Player
       color="blue"
       radius={PLAYER_RADIUS}
-      eyeAngle={computePlayerAngle(1)}
+      eyeAngle={computePlayerAngle(players, 1)}
       x={players[1].GetPosition().x}
       y={players[1].GetPosition().y}
     />
     <circle
       fill="yellow"
-      cx={ballBody.GetPosition().x}
-      cy={ballBody.GetPosition().y}
+      cx={ball.GetPosition().x}
+      cy={ball.GetPosition().y}
       r={BALL_RADIUS}
     />
     <rect

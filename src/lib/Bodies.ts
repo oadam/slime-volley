@@ -10,6 +10,7 @@ import {
   b2ContactListener,
   b2BodyType,
   b2Body,
+  b2Shape,
 } from "@flyover/box2d";
 import {
   WIDTH,
@@ -27,7 +28,7 @@ import {
   GRAVITY,
 } from "./Constants";
 
-export function createWorld(): b2World {
+export function createWorld(): { world: b2World; ball: b2Body } {
   const gravity = new b2Vec2(0, -GRAVITY);
   const world = new b2World(gravity);
 
@@ -52,16 +53,13 @@ export function createWorld(): b2World {
   netFixtureDef.friction = NET_RESTITUTION;
   netBody.CreateFixture(netFixtureDef);
 
-  return world;
-}
-
-export function createBall(world: b2World): b2Body {
+  // ball
   const ballDef = new b2BodyDef();
   ballDef.type = b2BodyType.b2_dynamicBody;
   ballDef.position.Set(BALL_STARTING_POS.x, BALL_STARTING_POS.y);
   ballDef.userData = { kind: "BALL" };
   ballDef.linearDamping = BALL_DAMPING;
-  let ballBody = world.CreateBody(ballDef);
+  let ball = world.CreateBody(ballDef);
   const ballShape = new b2CircleShape();
   ballShape.Set({ x: 0, y: 0 }, BALL_RADIUS);
   const ballFixtureDef = new b2FixtureDef();
@@ -69,8 +67,8 @@ export function createBall(world: b2World): b2Body {
   ballFixtureDef.density = 1;
   ballFixtureDef.restitution = BALL_RESTITUTION;
   ballFixtureDef.friction = BALL_RESTITUTION;
-  ballBody.CreateFixture(ballFixtureDef);
-  return ballBody;
+  ball.CreateFixture(ballFixtureDef);
+  return { world, ball };
 }
 
 export function createPlayer(world: b2World, playerIndex: number): b2Body {
@@ -98,25 +96,12 @@ export function createPlayer(world: b2World, playerIndex: number): b2Body {
   return playerBody;
 }
 
-export class ContactListener extends b2ContactListener {
-  constructor(private callbacks :{
-    onPlayerBall: (playerIndex: number) => void,
-    onBallGround: () => void
-  }
-  ) {
-    super();
-  }
-  override BeginContact(contact: b2Contact): void {
+export function getContactBodies(contact: b2Contact) {
     const bodies = [contact.m_fixtureA.m_body, contact.m_fixtureB.m_body];
     const player = bodies.find((b) => b.m_userData?.kind == "PLAYER");
     const ball = bodies.find((b) => b.m_userData?.kind == "BALL");
     const ground = bodies.find((b) => b.m_userData?.kind == "GROUND");
-
-    if (player && ball) {
-      this.callbacks.onPlayerBall(player.m_userData!.playerIndex!);
-    }
-    if (ball && ground) {
-      this.callbacks.onBallGround();
-    }
-  }
+    return {player, ball, ground};
 }
+
+
