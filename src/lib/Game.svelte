@@ -2,50 +2,31 @@
   import Player from "./Player.svelte";
   import { onMount } from "svelte";
   import {
-    b2Vec2,
-    b2World,
-    b2PolygonShape,
-    b2CircleShape,
-    b2Contact,
-    b2ChainShape,
-    b2FixtureDef,
-    b2BodyDef,
-    b2ContactListener,
-    b2BodyType,
-    b2Body,
-  } from "@flyover/box2d";
+    SCREEN_WIDTH,
+    SCREEN_HEIGHT,
+    SCORE_PADDING,
+    GROUND_WIDTH,
+    WIDTH,
+    PLAYER_RADIUS,
+    PLAYER_SPEED,
+    JUMP_HEIGHT,
+    BALL_RADIUS,
+    NET_HEIGHT,
+    GROUND_THICKNESS,
+    NET_THICKNESS,
+    PLAYER_STARTING_POS,
+    BALL_STARTING_POS,
+    GRAVITY,
+    PHYSICS,
+    CONTROLS,
+  } from "./Constants";
+  import {
+    createWorld,
+    createBall,
+    createPlayer,
+    ContactListener,
+  } from "./Bodies";
 
-  const CONTROLS = [
-    { left: "q", jump: "z", right: "d" },
-    { left: "ArrowLeft", jump: "ArrowUp", right: "ArrowRight" },
-  ];
-  const SCREEN_WIDTH = 0.9 * window.innerWidth;
-  const SCREEN_HEIGHT = 0.9 * window.innerHeight;
-  const SCORE_PADDING = 50;
-  const GROUND_WIDTH = 30;
-  const WIDTH = 40;
-  const PLAYER_RADIUS = 1.8;
-  const PLAYER_SPEED = 30 / 3.6;
-  const PLAYER_CHAIN_SIZE = 20;
-  const JUMP_HEIGHT = 1.0;
-  const BALL_RADIUS = 0.3;
-  const BALL_DAMPING = 0.4;
-  const BALL_RESTITUTION = 0.8;
-  const NET_HEIGHT = 1.5;
-  const GROUND_THICKNESS = 0.1;
-  const NET_THICKNESS = 0.15;
-  const PLAYER_STARTING_POS = (0.8 * GROUND_WIDTH) / 2;
-  const BALL_STARTING_POS = {
-    x: PLAYER_STARTING_POS,
-    y: 5,
-    vy: 5,
-  };
-  const GRAVITY = 10;
-  const PHYSICS = {
-    timeStep: 1 / 60,
-    velocityIterations: 6,
-    positionIterations: 2,
-  };
   interface PlayerInput {
     jump: boolean;
     dir: -1 | 0 | 1;
@@ -54,21 +35,27 @@
     { jump: false, dir: 0 },
     { jump: false, dir: 0 },
   ];
+  let score = [0, 0];
+  let playerTouchedLast = 0;
+  let resetNext: number | null = Math.round(Math.random());
 
-  const gravity = new b2Vec2(0, -GRAVITY);
-  const world = new b2World(gravity);
-  {
-    const groundDef = new b2BodyDef();
-    groundDef.position.Set(0, -GROUND_THICKNESS / 2);
-    groundDef.userData = { kind: "GROUND" };
-    const ground = world.CreateBody(groundDef);
-    // Define the ground box shape.
-    const groundBox = new b2PolygonShape();
-    // The extents are the half-widths of the box.
-    groundBox.SetAsBox(WIDTH * 5, GROUND_THICKNESS / 2);
-    // Add the ground fixture to the ground body.
-    ground.CreateFixture(groundBox, 0);
-  }
+  const world = createWorld();
+  let ballBody = createBall(world);
+  let players = [createPlayer(world, 0), createPlayer(world, 1)];
+  world.SetContactListener(
+    new ContactListener({
+      onBallGround: () => {
+        const fallenSide = ballBody.GetPosition().x > 0 ? 1 : 0;
+        const isFaute = Math.abs(ballBody.GetPosition().x) > GROUND_WIDTH / 2;
+        const playerWins = isFaute ? 1 - playerTouchedLast : 1 - fallenSide;
+        score[playerWins]++;
+        resetNext = 1 - playerWins;
+      },
+      onPlayerBall: (playerIndex: number) => {
+        playerTouchedLast = playerIndex!;
+      },
+    })
+  );
 
   const reset = function (playerServe: number) {
     playerTouchedLast = playerServe;
@@ -114,98 +101,6 @@
     }
   };
 
-  let ballBody: b2Body;
-  {
-    const ballDef = new b2BodyDef();
-    ballDef.type = b2BodyType.b2_dynamicBody;
-    ballDef.position.Set(BALL_STARTING_POS.x, BALL_STARTING_POS.y);
-    ballDef.userData = { kind: "BALL" };
-    ballDef.linearDamping = BALL_DAMPING;
-    ballBody = world.CreateBody(ballDef);
-    const ballShape = new b2CircleShape();
-    ballShape.Set({ x: 0, y: 0 }, BALL_RADIUS);
-    const ballFixtureDef = new b2FixtureDef();
-    ballFixtureDef.shape = ballShape;
-    ballFixtureDef.density = 1;
-    ballFixtureDef.restitution = BALL_RESTITUTION;
-    ballFixtureDef.friction = BALL_RESTITUTION;
-    ballBody.CreateFixture(ballFixtureDef);
-  }
-
-  {
-    const netDef = new b2BodyDef();
-    netDef.position.Set(0, NET_HEIGHT / 2);
-    const netBody = world.CreateBody(netDef);
-    const netShape = new b2PolygonShape();
-    netShape.SetAsBox(NET_THICKNESS / 2, NET_HEIGHT / 2);
-    const netFixtureDef = new b2FixtureDef();
-    netFixtureDef.shape = netShape;
-    netFixtureDef.restitution = BALL_RESTITUTION;
-    netFixtureDef.friction = BALL_RESTITUTION;
-    netBody.CreateFixture(netFixtureDef);
-  }
-
-  function makePlayer(startX: number, playerIndex: number) {
-    const playerDef = new b2BodyDef();
-    playerDef.type = b2BodyType.b2_kinematicBody;
-    playerDef.position.Set(startX, 0);
-    playerDef.userData = { kind: "PLAYER", playerIndex: playerIndex };
-    const playerBody = world.CreateBody(playerDef);
-    const playerShape = new b2ChainShape();
-    const playerPoints = [];
-    for (let p = 0; p < PLAYER_CHAIN_SIZE; p++) {
-      const angle = Math.PI * (1 - p / (PLAYER_CHAIN_SIZE - 1));
-      playerPoints.push({
-        x: Math.cos(angle) * PLAYER_RADIUS,
-        y: Math.sin(angle) * PLAYER_RADIUS,
-      });
-    }
-    playerShape.CreateLoop(playerPoints);
-    const playerFixtureDef = new b2FixtureDef();
-    playerFixtureDef.shape = playerShape;
-    playerFixtureDef.density = 1;
-    playerFixtureDef.restitution = BALL_RESTITUTION;
-    playerBody.CreateFixture(playerFixtureDef);
-    return playerBody;
-  }
-
-  let players = [
-    makePlayer(-PLAYER_STARTING_POS, 0),
-    makePlayer(PLAYER_STARTING_POS, 1),
-  ];
-
-  interface AnnotatedBody extends Omit<b2Body, "m_userData"> {
-    m_userData: null | {
-      kind?: "BALL" | "GROUND" | "PLAYER";
-      playerIndex?: number;
-    };
-  }
-  let playerTouchedLast = 0;
-  let resetNext: null | number = Math.round(Math.random());
-  let score = [0, 0];
-  class MyListener extends b2ContactListener {
-    override BeginContact(contact: b2Contact): void {
-      const bodies: AnnotatedBody[] = [
-        contact.m_fixtureA.m_body,
-        contact.m_fixtureB.m_body,
-      ];
-      const player = bodies.find((b) => b.m_userData?.kind == "PLAYER");
-      const ball = bodies.find((b) => b.m_userData?.kind == "BALL");
-      const ground = bodies.find((b) => b.m_userData?.kind == "GROUND");
-
-      if (player && ball) {
-        playerTouchedLast = player.m_userData!.playerIndex!;
-      }
-      if (ball && ground) {
-        const fallenSide = ballBody.GetPosition().x > 0 ? 1 : 0;
-        const isFaute = Math.abs(ballBody.GetPosition().x) > GROUND_WIDTH / 2;
-        const playerWins = isFaute ? 1 - playerTouchedLast : 1 - fallenSide;
-        score[playerWins]++;
-        resetNext = 1 - playerWins;
-      }
-    }
-  }
-  world.SetContactListener(new MyListener());
   let pause = false;
 
   let lastPhysics = performance.now() / 1000;
