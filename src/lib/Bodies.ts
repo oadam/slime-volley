@@ -11,6 +11,7 @@ import {
   b2BodyType,
   b2Body,
   b2Shape,
+  XY,
 } from "@flyover/box2d";
 import {
   WIDTH,
@@ -97,11 +98,26 @@ export function createPlayer(world: b2World, playerIndex: number): b2Body {
 }
 
 export function getContactBodies(contact: b2Contact) {
-    const bodies = [contact.m_fixtureA.m_body, contact.m_fixtureB.m_body];
-    const player = bodies.find((b) => b.m_userData?.kind == "PLAYER");
-    const ball = bodies.find((b) => b.m_userData?.kind == "BALL");
-    const ground = bodies.find((b) => b.m_userData?.kind == "GROUND");
-    return {player, ball, ground};
+  const bodies = [contact.m_fixtureA.m_body, contact.m_fixtureB.m_body];
+  const player = bodies.find((b) => b.m_userData?.kind == "PLAYER");
+  const ball = bodies.find((b) => b.m_userData?.kind == "BALL");
+  const ground = bodies.find((b) => b.m_userData?.kind == "GROUND");
+  return { player, ball, ground };
 }
 
+export class BodySnapshot {
+  private position: XY;
+  private velocity: XY;
+  private angularVelocity: number;
+  constructor(body: b2Body) {
+    this.position = body.GetPosition().Clone();
+    this.velocity = body.GetLinearVelocity();
+    this.angularVelocity = body.GetAngularVelocity();
+  }
 
+  public apply(to: b2Body) {
+    to.SetPosition(this.position);
+    to.SetLinearVelocity(this.velocity);
+    to.SetAngularVelocity(this.angularVelocity);
+  }
+}

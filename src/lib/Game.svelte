@@ -6,6 +6,7 @@
     SCREEN_HEIGHT,
     SCORE_PADDING,
     GROUND_WIDTH,
+    AI_SIMUL_COUNT,
     WIDTH,
     PLAYER_RADIUS,
     PLAYER_SPEED,
@@ -20,9 +21,21 @@
     PHYSICS,
     CONTROLS,
   } from "./Constants";
-  import { XY, b2Body, b2ContactListener, b2Contact } from "@flyover/box2d";
-  import { createWorld, createPlayer, getContactBodies } from "./Bodies";
+  import {
+    b2Vec2,
+    XY,
+    b2Body,
+    b2ContactListener,
+    b2Contact,
+  } from "@flyover/box2d";
+  import {
+    createWorld,
+    createPlayer,
+    getContactBodies,
+    BodySnapshot,
+  } from "./Bodies";
 
+  const JUMP_SPEED = Math.sqrt(2 * GRAVITY * JUMP_HEIGHT);
   interface PlayerInput {
     jump: boolean;
     dir: -1 | 0 | 1;
@@ -38,14 +51,18 @@
   let { world, ball } = createWorld();
   let players = [createPlayer(world, 0), createPlayer(world, 1)];
 
-  let simulationHadBallGround = false;
-  let simulation = createWorld();
+  let simulationGroundContact: XY | undefined;
+  const simulWorld = createWorld();
+  const simulation = {
+    player: createPlayer(simulWorld.world, 0),
+    ...createWorld(),
+  };
   simulation.world.SetContactListener(
     new (class extends b2ContactListener {
       override BeginContact(contact: b2Contact): void {
-        const { player, ball, ground } = getContactBodies(contact);
+        const { ball, ground } = getContactBodies(contact);
         if (ball && ground) {
-          simulationHadBallGround = true;
+          simulationGroundContact = ball.GetPosition().Clone();
         }
       }
     })()
@@ -59,22 +76,107 @@
     resetNext = 1 - playerWins;
   }
 
+  // https://stackoverflow.com/a/12646864/436792
+  function shuffleArray(array: unknown[]) {
+    for (let i = array.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [array[i], array[j]] = [array[j], array[i]];
+    }
+  }
+
   function adjustSimul() {
-    simulation.ball.SetPosition(ball.GetPosition());
-    simulation.ball.SetLinearVelocity(ball.GetLinearVelocity());
-    simulation.ball.SetAngularVelocity(ball.GetAngularVelocity());
-    simulationHadBallGround = false;
-    while (!simulationHadBallGround) {
+    // clone world ball
+    const initSnapshot = new BodySnapshot(ball);
+    initSnapshot.apply(simulation.ball);
+
+    // move player out of the way
+    simulation.player.SetPositionXY(3 * WIDTH, 0);
+
+    let simulSteps = 0;
+    let firstReachable: { pos: XY; steps: number } | undefined;
+    let lastReachable: typeof firstReachable;
+    simulationGroundContact = undefined;
+    while (!simulationGroundContact) {
+      simulSteps++;
+      // avoid inifinite loop
+      if (simulSteps * PHYSICS.timeStep > 10) {
+        throw new Error("ball did not reach ground in 10 seconds");
+      }
       simulation.world.Step(
         PHYSICS.timeStep,
         PHYSICS.velocityIterations,
         PHYSICS.positionIterations
       );
-      const pos = simulation.ball.GetPosition();
-      // TODO compute if reachable by bot
-      // if reachable compute trajectory for each (hitAngle, dir) tuples
-      // pick best trajectory
+      if (
+        !firstReachable &&
+        simulation.ball.GetPosition().y < PLAYER_RADIUS + BALL_RADIUS
+      ) {
+        firstReachable = {
+          pos: simulation.ball.GetPosition().Clone(),
+          steps: simulSteps,
+        };
+      }
     }
+    if (!firstReachable) {
+      throw new Error(
+        "ball reach ground without ever reaching reachable height ??"
+      );
+    }
+    lastReachable = {
+      pos: simulationGroundContact,
+      steps: simulSteps,
+    };
+    // assume that balls goes straight from firstReachablePos to lastReachablePos
+    // try all reachable positions that place the player within a radius of this straight line
+
+    const reachableVec = new b2Vec2(
+      firstReachable.pos.x,
+      firstReachable.pos.y
+    ).SelfSub(lastReachable.pos);
+
+    const JUMP_STEPS = Math.ceil(JUMP_SPEED / GRAVITY / PHYSICS.timeStep);
+    const reachableSin = reachableVec.y / reachableVec.Length();
+    const dxFirstTouch = Math.abs(PLAYER_RADIUS / reachableSin);
+    const DX_TO_STEPS = 1 / PLAYER_SPEED / PHYSICS.timeStep;
+    const dxFirstTouchSteps = dxFirstTouch * DX_TO_STEPS;
+    const stepsToNet = Math.ceil(-players[0].GetPosition().x * DX_TO_STEPS);
+    let candidateMoves: {
+      stepsGoingRight: number;
+      lastStep: number;
+      stepsJumping: number;
+    }[] = [];
+    for (let stepsJumping = 0; stepsJumping <= JUMP_STEPS; stepsJumping++) {
+      const height =
+        JUMP_SPEED * stepsJumping * PHYSICS.timeStep -
+        (GRAVITY * Math.pow(stepsJumping * PHYSICS.timeStep, 2)) / 2;
+      const reachableXAtHeigh =
+        lastReachable.pos.x +
+        (height / firstReachable.pos.y) *
+          (firstReachable.pos.x - lastReachable.pos.x);
+      const stepsGoingRightToReachableXAtHeight =
+        (reachableXAtHeigh - players[0].GetPosition().x) * DX_TO_STEPS;
+      const minStepsGoingRight = Math.max(
+        -simulSteps,
+        Math.floor(stepsGoingRightToReachableXAtHeight - dxFirstTouchSteps)
+      );
+      const maxStepsGoingRight = Math.min(
+        simulSteps,
+        Math.ceil(stepsGoingRightToReachableXAtHeight + dxFirstTouchSteps),
+        stepsToNet
+      );
+      // console.log({ stepsJumping, minStepsGoingRight, maxStepsGoingRight });
+      for (
+        let stepsGoingRight = minStepsGoingRight;
+        stepsGoingRight <= maxStepsGoingRight;
+        stepsGoingRight++
+      ) {
+        for (let lastStep = -1; lastStep <= 1; lastStep++) {
+          candidateMoves.push({ stepsGoingRight, lastStep, stepsJumping });
+        }
+      }
+    }
+    shuffleArray(candidateMoves);
+    console.log(candidateMoves.slice(0, AI_SIMUL_COUNT));
   }
 
   world.SetContactListener(
@@ -98,6 +200,7 @@
   );
 
   const reset = function (playerServe: number) {
+    stepsFromStart = 0;
     playerTouchedLast = playerServe;
     players[0].SetPositionXY(-PLAYER_STARTING_POS, 0);
     players[1].SetPositionXY(PLAYER_STARTING_POS, 0);
@@ -162,7 +265,7 @@
       py = 0;
     }
     if (p.GetPosition().y <= 0) {
-      vy = playerInputs[index].jump ? Math.sqrt(2 * GRAVITY * JUMP_HEIGHT) : 0;
+      vy = playerInputs[index].jump ? JUMP_SPEED : 0;
     } else {
       vy = p.GetLinearVelocity().y - PHYSICS.timeStep * GRAVITY;
     }
@@ -176,6 +279,7 @@
     p.SetLinearVelocity({ x: vx, y: vy });
   }
 
+  let stepsFromStart = 0;
   function runPhysics() {
     const steps = Math.floor(
       (performance.now() / 1000 - lastPhysics) / PHYSICS.timeStep
@@ -184,6 +288,7 @@
     for (let i = 0; i < steps; i++) {
       applyPlayerSpeed(0);
       applyPlayerSpeed(1);
+      stepsFromStart++;
       world.Step(
         PHYSICS.timeStep,
         PHYSICS.velocityIterations,
